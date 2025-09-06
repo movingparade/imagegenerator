@@ -23,11 +23,13 @@ export interface IStorage {
   deleteClient(id: string, userId: string, isAdmin: boolean): Promise<boolean>;
   
   // Projects
-  getProjects(clientId?: string, userId?: string, isAdmin?: boolean): Promise<(Project & { client: Client })[]>;
+  getProjects(clientId?: string, userId?: string, isAdmin?: boolean, includeArchived?: boolean): Promise<(Project & { client: Client })[]>;
   getProject(id: string, userId: string, isAdmin: boolean): Promise<(Project & { client: Client }) | undefined>;
   createProject(project: InsertProject & { createdByUserId: string }): Promise<Project>;
   updateProject(id: string, project: Partial<InsertProject>, userId: string, isAdmin: boolean): Promise<Project | undefined>;
   deleteProject(id: string, userId: string, isAdmin: boolean): Promise<boolean>;
+  archiveProject(id: string, userId: string, isAdmin: boolean): Promise<Project | undefined>;
+  unarchiveProject(id: string, userId: string, isAdmin: boolean): Promise<Project | undefined>;
   
   // Assets
   getAssets(projectId?: string, userId?: string, isAdmin?: boolean): Promise<(Asset & { project: Project & { client: Client } })[]>;
@@ -111,7 +113,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Projects
-  async getProjects(clientId?: string, userId?: string, isAdmin = false): Promise<(Project & { client: Client })[]> {
+  async getProjects(clientId?: string, userId?: string, isAdmin = false, includeArchived = false): Promise<(Project & { client: Client })[]> {
     const query = db.select().from(projects).leftJoin(clients, eq(projects.clientId, clients.id));
     const conditions = [];
     
@@ -120,6 +122,9 @@ export class DatabaseStorage implements IStorage {
     }
     if (!isAdmin && userId) {
       conditions.push(eq(projects.createdByUserId, userId));
+    }
+    if (!includeArchived) {
+      conditions.push(sql`${projects.archived} IS NULL`);
     }
     
     if (conditions.length > 0) {
@@ -165,6 +170,30 @@ export class DatabaseStorage implements IStorage {
     }
     const result = await db.delete(projects).where(and(...conditions));
     return (result.rowCount ?? 0) > 0;
+  }
+
+  async archiveProject(id: string, userId: string, isAdmin: boolean): Promise<Project | undefined> {
+    const conditions = [eq(projects.id, id)];
+    if (!isAdmin) {
+      conditions.push(eq(projects.createdByUserId, userId));
+    }
+    const [updated] = await db.update(projects)
+      .set({ archived: new Date() })
+      .where(and(...conditions))
+      .returning();
+    return updated || undefined;
+  }
+
+  async unarchiveProject(id: string, userId: string, isAdmin: boolean): Promise<Project | undefined> {
+    const conditions = [eq(projects.id, id)];
+    if (!isAdmin) {
+      conditions.push(eq(projects.createdByUserId, userId));
+    }
+    const [updated] = await db.update(projects)
+      .set({ archived: null })
+      .where(and(...conditions))
+      .returning();
+    return updated || undefined;
   }
 
   // Assets
