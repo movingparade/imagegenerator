@@ -108,6 +108,32 @@ export class DatabaseStorage implements IStorage {
     if (!isAdmin) {
       conditions.push(eq(clients.createdByUserId, userId));
     }
+    
+    // First, get all projects for this client
+    const clientProjects = await db.select({ id: projects.id })
+      .from(projects)
+      .where(eq(projects.clientId, id));
+    
+    // Delete all assets and variants for each project
+    for (const project of clientProjects) {
+      // Get all assets for this project
+      const projectAssets = await db.select({ id: assets.id })
+        .from(assets)
+        .where(eq(assets.projectId, project.id));
+      
+      // Delete all variants for each asset
+      for (const asset of projectAssets) {
+        await db.delete(variants).where(eq(variants.assetId, asset.id));
+      }
+      
+      // Delete all assets for this project
+      await db.delete(assets).where(eq(assets.projectId, project.id));
+    }
+    
+    // Delete all projects for this client
+    await db.delete(projects).where(eq(projects.clientId, id));
+    
+    // Finally delete the client
     const result = await db.delete(clients).where(and(...conditions));
     return (result.rowCount ?? 0) > 0;
   }
@@ -168,6 +194,21 @@ export class DatabaseStorage implements IStorage {
     if (!isAdmin) {
       conditions.push(eq(projects.createdByUserId, userId));
     }
+    
+    // First, get all assets for this project
+    const projectAssets = await db.select({ id: assets.id })
+      .from(assets)
+      .where(eq(assets.projectId, id));
+    
+    // Delete all variants for each asset
+    for (const asset of projectAssets) {
+      await db.delete(variants).where(eq(variants.assetId, asset.id));
+    }
+    
+    // Delete all assets for this project
+    await db.delete(assets).where(eq(assets.projectId, id));
+    
+    // Finally delete the project
     const result = await db.delete(projects).where(and(...conditions));
     return (result.rowCount ?? 0) > 0;
   }
@@ -259,6 +300,11 @@ export class DatabaseStorage implements IStorage {
     if (!isAdmin) {
       conditions.push(eq(assets.createdByUserId, userId));
     }
+    
+    // First delete all variants for this asset
+    await db.delete(variants).where(eq(variants.assetId, id));
+    
+    // Then delete the asset
     const result = await db.delete(assets).where(and(...conditions));
     return (result.rowCount ?? 0) > 0;
   }
