@@ -21,6 +21,7 @@ export interface Project {
   clientId: string;
   name: string;
   description: string | null;
+  archived: string | null;
   createdByUserId: string;
   createdAt: string;
   updatedAt: string;
