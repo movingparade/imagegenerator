@@ -1,0 +1,532 @@
+import type { Express } from "express";
+import { createServer, type Server } from "http";
+import session from "express-session";
+import { storage } from "./storage";
+import { 
+  login, 
+  register, 
+  logout, 
+  getMe, 
+  requireAuth, 
+  requireAdmin,
+  type AuthenticatedRequest 
+} from "./auth";
+import { 
+  insertClientSchema,
+  insertProjectSchema,
+  insertAssetSchema,
+  insertVariantSchema,
+} from "@shared/schema";
+import { 
+  generateTextVariants,
+  generateImages,
+  validateTextGenerationRequest,
+  validateImageGenerationRequest 
+} from "./gemini";
+import { z } from "zod";
+
+export async function registerRoutes(app: Express): Promise<Server> {
+  // Session middleware
+  app.use(session({
+    secret: process.env.SESSION_SECRET || "dev-secret-change-in-production",
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      secure: process.env.NODE_ENV === "production",
+      httpOnly: true,
+      maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
+    },
+  }));
+
+  // Auth routes
+  app.post("/api/auth/login", login);
+  app.post("/api/auth/register", register);
+  app.post("/api/auth/logout", logout);
+  app.get("/api/me", getMe);
+
+  // Helper function for error responses
+  const handleError = (res: any, error: any) => {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({
+        ok: false,
+        error: { code: "VALIDATION_ERROR", message: "Invalid input", details: error.errors }
+      });
+    }
+    console.error("API Error:", error);
+    return res.status(500).json({
+      ok: false,
+      error: { code: "INTERNAL_ERROR", message: "Internal server error" }
+    });
+  };
+
+  // Dashboard stats
+  app.get("/api/dashboard/stats", requireAuth, async (req, res) => {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const stats = await storage.getDashboardStats(user.id, user.role === "ADMIN");
+      res.json({ ok: true, data: stats });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  // Clients routes
+  app.get("/api/clients", requireAuth, async (req, res) => {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const clients = await storage.getClients(user.id, user.role === "ADMIN");
+      res.json({ ok: true, data: clients });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  app.post("/api/clients", requireAuth, async (req, res) => {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const clientData = insertClientSchema.parse(req.body);
+      const client = await storage.createClient({
+        ...clientData,
+        createdByUserId: user.id,
+      });
+      res.status(201).json({ ok: true, data: client });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  app.get("/api/clients/:id", requireAuth, async (req, res) => {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const client = await storage.getClient(req.params.id, user.id, user.role === "ADMIN");
+      if (!client) {
+        return res.status(404).json({
+          ok: false,
+          error: { code: "NOT_FOUND", message: "Client not found" }
+        });
+      }
+      res.json({ ok: true, data: client });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  app.patch("/api/clients/:id", requireAuth, async (req, res) => {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const updateData = insertClientSchema.partial().parse(req.body);
+      const client = await storage.updateClient(req.params.id, updateData, user.id, user.role === "ADMIN");
+      if (!client) {
+        return res.status(404).json({
+          ok: false,
+          error: { code: "NOT_FOUND", message: "Client not found or access denied" }
+        });
+      }
+      res.json({ ok: true, data: client });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  app.delete("/api/clients/:id", requireAuth, async (req, res) => {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const success = await storage.deleteClient(req.params.id, user.id, user.role === "ADMIN");
+      if (!success) {
+        return res.status(404).json({
+          ok: false,
+          error: { code: "NOT_FOUND", message: "Client not found or access denied" }
+        });
+      }
+      res.json({ ok: true, data: { message: "Client deleted successfully" } });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  // Projects routes
+  app.get("/api/projects", requireAuth, async (req, res) => {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const clientId = req.query.clientId as string | undefined;
+      const projects = await storage.getProjects(clientId, user.id, user.role === "ADMIN");
+      res.json({ ok: true, data: projects });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  app.post("/api/projects", requireAuth, async (req, res) => {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const projectData = insertProjectSchema.parse(req.body);
+      const project = await storage.createProject({
+        ...projectData,
+        createdByUserId: user.id,
+      });
+      res.status(201).json({ ok: true, data: project });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  app.get("/api/projects/:id", requireAuth, async (req, res) => {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const project = await storage.getProject(req.params.id, user.id, user.role === "ADMIN");
+      if (!project) {
+        return res.status(404).json({
+          ok: false,
+          error: { code: "NOT_FOUND", message: "Project not found" }
+        });
+      }
+      res.json({ ok: true, data: project });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  app.patch("/api/projects/:id", requireAuth, async (req, res) => {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const updateData = insertProjectSchema.partial().parse(req.body);
+      const project = await storage.updateProject(req.params.id, updateData, user.id, user.role === "ADMIN");
+      if (!project) {
+        return res.status(404).json({
+          ok: false,
+          error: { code: "NOT_FOUND", message: "Project not found or access denied" }
+        });
+      }
+      res.json({ ok: true, data: project });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  app.delete("/api/projects/:id", requireAuth, async (req, res) => {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const success = await storage.deleteProject(req.params.id, user.id, user.role === "ADMIN");
+      if (!success) {
+        return res.status(404).json({
+          ok: false,
+          error: { code: "NOT_FOUND", message: "Project not found or access denied" }
+        });
+      }
+      res.json({ ok: true, data: { message: "Project deleted successfully" } });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  // Assets routes
+  app.get("/api/assets", requireAuth, async (req, res) => {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const projectId = req.query.projectId as string | undefined;
+      const assets = await storage.getAssets(projectId, user.id, user.role === "ADMIN");
+      res.json({ ok: true, data: assets });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  app.post("/api/assets", requireAuth, async (req, res) => {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const assetData = insertAssetSchema.parse(req.body);
+      const asset = await storage.createAsset({
+        ...assetData,
+        createdByUserId: user.id,
+      });
+      res.status(201).json({ ok: true, data: asset });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  app.get("/api/assets/:id", requireAuth, async (req, res) => {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const asset = await storage.getAsset(req.params.id, user.id, user.role === "ADMIN");
+      if (!asset) {
+        return res.status(404).json({
+          ok: false,
+          error: { code: "NOT_FOUND", message: "Asset not found" }
+        });
+      }
+      res.json({ ok: true, data: asset });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  app.patch("/api/assets/:id", requireAuth, async (req, res) => {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const updateData = insertAssetSchema.partial().parse(req.body);
+      const asset = await storage.updateAsset(req.params.id, updateData, user.id, user.role === "ADMIN");
+      if (!asset) {
+        return res.status(404).json({
+          ok: false,
+          error: { code: "NOT_FOUND", message: "Asset not found or access denied" }
+        });
+      }
+      res.json({ ok: true, data: asset });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  app.delete("/api/assets/:id", requireAuth, async (req, res) => {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const success = await storage.deleteAsset(req.params.id, user.id, user.role === "ADMIN");
+      if (!success) {
+        return res.status(404).json({
+          ok: false,
+          error: { code: "NOT_FOUND", message: "Asset not found or access denied" }
+        });
+      }
+      res.json({ ok: true, data: { message: "Asset deleted successfully" } });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  // Variants routes
+  app.get("/api/variants", requireAuth, async (req, res) => {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const assetId = req.query.assetId as string | undefined;
+      const variants = await storage.getVariants(assetId, user.id, user.role === "ADMIN");
+      res.json({ ok: true, data: variants });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  app.post("/api/variants", requireAuth, async (req, res) => {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const variantData = insertVariantSchema.parse(req.body);
+      const variant = await storage.createVariant({
+        ...variantData,
+        createdByUserId: user.id,
+      });
+      res.status(201).json({ ok: true, data: variant });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  app.get("/api/variants/:id", requireAuth, async (req, res) => {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const variant = await storage.getVariant(req.params.id, user.id, user.role === "ADMIN");
+      if (!variant) {
+        return res.status(404).json({
+          ok: false,
+          error: { code: "NOT_FOUND", message: "Variant not found" }
+        });
+      }
+      res.json({ ok: true, data: variant });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  app.patch("/api/variants/:id", requireAuth, async (req, res) => {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const updateData = insertVariantSchema.partial().parse(req.body);
+      const variant = await storage.updateVariant(req.params.id, updateData, user.id, user.role === "ADMIN");
+      if (!variant) {
+        return res.status(404).json({
+          ok: false,
+          error: { code: "NOT_FOUND", message: "Variant not found or access denied" }
+        });
+      }
+      res.json({ ok: true, data: variant });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  app.delete("/api/variants/:id", requireAuth, async (req, res) => {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const success = await storage.deleteVariant(req.params.id, user.id, user.role === "ADMIN");
+      if (!success) {
+        return res.status(404).json({
+          ok: false,
+          error: { code: "NOT_FOUND", message: "Variant not found or access denied" }
+        });
+      }
+      res.json({ ok: true, data: { message: "Variant deleted successfully" } });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  // AI Generation routes
+  app.post("/api/generate/text", requireAuth, async (req, res) => {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const request = validateTextGenerationRequest(req.body);
+      
+      // Get asset context
+      const asset = await storage.getAsset(request.assetId, user.id, user.role === "ADMIN");
+      if (!asset) {
+        return res.status(404).json({
+          ok: false,
+          error: { code: "NOT_FOUND", message: "Asset not found" }
+        });
+      }
+      
+      const variants = await generateTextVariants(request, {
+        name: asset.name,
+        defaultBindings: asset.defaultBindings,
+        styleHints: asset.styleHints,
+        projectName: asset.project.name,
+        clientName: asset.project.client.name,
+      });
+      
+      res.json({ ok: true, data: { variants } });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  app.post("/api/generate/image", requireAuth, async (req, res) => {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const request = validateImageGenerationRequest(req.body);
+      
+      // Get asset context
+      const asset = await storage.getAsset(request.assetId, user.id, user.role === "ADMIN");
+      if (!asset) {
+        return res.status(404).json({
+          ok: false,
+          error: { code: "NOT_FOUND", message: "Asset not found" }
+        });
+      }
+      
+      const imageUrls = await generateImages(request, {
+        name: asset.name,
+        styleHints: asset.styleHints,
+        projectName: asset.project.name,
+        clientName: asset.project.client.name,
+      });
+      
+      res.json({ ok: true, data: { images: imageUrls } });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  // Bulk variant generation
+  app.post("/api/variants/generate", requireAuth, async (req, res) => {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const schema = z.object({
+        assetId: z.string().uuid(),
+        generateText: z.boolean().default(true),
+        generateImages: z.boolean().default(true),
+        textCount: z.number().min(1).max(10).default(3),
+        imageCount: z.number().min(1).max(5).default(1),
+        constraints: z.object({
+          headlineMaxWords: z.number().optional(),
+          subheadlineMaxChars: z.number().optional(),
+          ctaPhrasesAllowed: z.array(z.string()).optional(),
+          tone: z.enum(["conversational", "direct", "playful", "formal"]).optional(),
+          bannedPhrases: z.array(z.string()).optional(),
+        }).optional(),
+      });
+      
+      const request = schema.parse(req.body);
+      
+      // Get asset context
+      const asset = await storage.getAsset(request.assetId, user.id, user.role === "ADMIN");
+      if (!asset) {
+        return res.status(404).json({
+          ok: false,
+          error: { code: "NOT_FOUND", message: "Asset not found" }
+        });
+      }
+      
+      const results = {
+        variants: [] as any[],
+        errors: [] as string[],
+      };
+      
+      try {
+        // Generate text variants
+        let textVariants: any[] = [];
+        if (request.generateText) {
+          textVariants = await generateTextVariants({
+            assetId: request.assetId,
+            count: request.textCount,
+            constraints: request.constraints,
+          }, {
+            name: asset.name,
+            defaultBindings: asset.defaultBindings,
+            styleHints: asset.styleHints,
+            projectName: asset.project.name,
+            clientName: asset.project.client.name,
+          });
+        }
+        
+        // Generate images
+        let imageUrls: string[] = [];
+        if (request.generateImages) {
+          imageUrls = await generateImages({
+            assetId: request.assetId,
+            count: request.imageCount,
+          }, {
+            name: asset.name,
+            styleHints: asset.styleHints,
+            projectName: asset.project.name,
+            clientName: asset.project.client.name,
+          });
+        }
+        
+        // Create variants combining text and images
+        const maxVariants = Math.max(textVariants.length, imageUrls.length);
+        for (let i = 0; i < maxVariants; i++) {
+          const textVariant = textVariants[i % textVariants.length] || asset.defaultBindings;
+          const imageUrl = imageUrls[i % imageUrls.length] || "";
+          
+          try {
+            const variant = await storage.createVariant({
+              assetId: request.assetId,
+              source: "AUTO",
+              bindings: {
+                headline: textVariant.headline,
+                subheadline: textVariant.subheadline,
+                cta: textVariant.cta,
+                imageUrl: imageUrl,
+              },
+              renderSvg: asset.templateSvg, // TODO: Process template with bindings
+              status: "DRAFT",
+              createdByUserId: user.id,
+            });
+            
+            results.variants.push(variant);
+          } catch (error) {
+            results.errors.push(`Failed to create variant ${i + 1}: ${error}`);
+          }
+        }
+      } catch (error) {
+        results.errors.push(`Generation failed: ${error}`);
+      }
+      
+      res.json({ ok: true, data: results });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  const httpServer = createServer(app);
+  return httpServer;
+}
