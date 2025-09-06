@@ -1,0 +1,391 @@
+You are a senior staff engineer + product lead. You will produce a PRD, a working MVP codebase, and a repeatable component-intake workflow for a web application that generates multiple ad variants from a template asset.
+
+========================
+A) PROJECT OVERVIEW
+========================
+Product: “Ad Variants Studio” (internal MVP)
+
+Goal: Create a web app to generate multiple ad variants from a master template. Each variant includes headline, subheadline, CTA copy, and a background image that matches the template’s look & feel. Variants can be user-provided or auto-generated (text + image).
+
+Key Entities & Hierarchy:
+- User (roles: ADMIN | USER)
+- Client (top level, hosts projects)
+- Project (campaigns under clients)
+- Asset (template under a project; contains tokenized SVG + fonts + defaults)
+- Variant (instantiated ad: bindings + rendered image)
+
+Permissions (MVP):
+- ADMIN: CRUD everything (users/clients/projects/assets/variants). View all.
+- USER: Can create/read clients & projects; can only update/delete the items they created (ownership = createdByUserId). Users cannot see others’ clients/projects/assets/variants.
+
+Functional Pillars:
+1) Auth & RBAC
+2) CRUD for Clients/Projects/Assets/Variants
+3) SVG-based template authoring with token bindings ({{headline}}, {{subheadline}}, {{cta}}, {{image}})
+4) Deterministic rendering: SVG ➜ PNG (server-side), embedded fonts, pixel-perfect text
+5) Auto-generation:
+   - Text via LLM ➜ JSON schema enforced
+   - Image via Gemini 2.5 Flash Image (“nano banana”) with look & feel continuity
+6) Storage: Google Cloud Storage (GCS) with signed URLs
+7) Simple UI: list pages, detail pages, asset editor, variant grid
+
+Non-Goals (MVP): external SSO, billing, approval workflows, localization, public sharing, multi-region scaling.
+
+Stack:
+- Frontend: Next.js 14 (App Router), React 18, TypeScript, Tailwind, shadcn/ui
+- Server: Next.js route handlers (TypeScript)
+- DB/ORM: PostgreSQL + Prisma
+- Auth: next-auth (Credentials for MVP)
+- Storage: GCS (signed URLs)
+- Rendering: SVG as source of truth; resvg/sharp for rasterization
+- AI: Google AI SDK (Gemini 2.5 Flash Image) + text LLM
+- Tests: Vitest (unit) + Playwright (smoke/e2e)
+- Logging: pino
+
+Environment Variables (expected):
+- DATABASE_URL
+- NEXTAUTH_SECRET
+- GOOGLE_PROJECT_ID
+- GOOGLE_APPLICATION_CREDENTIALS_JSON  (or a path)
+- GCS_BUCKET_NAME
+- GEMINI_API_KEY
+- GEMINI_IMAGE_MODEL=gemini-2.5-flash-image
+
+========================
+B) PRD INSTRUCTIONS
+========================
+Create /docs/PRD.md that includes:
+
+1) Problem Statement
+2) Goals & Non-Goals
+3) User Roles & Permissions Matrix
+4) Detailed Use Cases
+   - Create Client ➜ Project ➜ Asset
+   - Author Template (SVG with tokens, fonts, image placeholder)
+   - Manual Variant: supply copy + image ➜ render
+   - Auto Variant: generate text (JSON) + image (Gemini) ➜ render
+   - Preview/Export
+5) System Overview & Constraints
+   - SVG as ground truth, font embedding, text wrapping guarantees
+   - GCS storage plan, signed URLs, MIME validation
+   - Rate limits, file size caps (20MB)
+6) Data Model (ERD + field definitions)
+7) API Contracts (request/response schemas, error shapes)
+8) Acceptance Criteria (per feature)
+9) Security/Compliance (SVG sanitization, least-privilege)
+10) Observability (logs, basic metrics)
+11) Open Questions & Future Work (sharing, schedules, AB tests, localization)
+
+Deliverable: Write the full PRD, cross-referencing file paths and route names you implement.
+
+========================
+C) REPO SCaffold & CONVENTIONS
+========================
+Create the project with:
+
+/docs/PRD.md
+/env/.env.example
+/src/
+  app/
+    api/
+      auth/...
+      clients/...
+      projects/...
+      assets/...
+      variants/...
+      generate/
+        text/route.ts
+        image/route.ts
+      uploads/
+        sign/route.ts
+      render/
+        preview/route.ts
+    (app router pages: clients, projects, assets, variants)
+  lib/
+    auth.ts
+    db.ts
+    rbac.ts
+    gcs.ts
+    render/
+      svgCompile.ts        // token replace, font embed, text wrap
+      svgSanitize.ts
+      rasterize.ts
+    ai/
+      textGen.ts
+      imageGen.ts
+  components/
+    ui/...
+    templates/
+      SvgEditor.tsx
+      FontManager.tsx
+      BindingsPanel.tsx
+  styles/
+  types/
+
+/prisma/schema.prisma
+/scripts/seed.ts
+/tests/unit/...
+/tests/e2e/...
+
+Coding conventions:
+- TypeScript strict, ESLint + Prettier
+- Zod for DTO validation
+- Never accept raw SVG/URLs without sanitization & validation
+- All APIs return { ok, data?, error? } with typed errors
+
+========================
+D) DATA MODEL (PRISMA)
+========================
+Implement the following (adjust relation names as needed):
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String?
+  password  String
+  role      Role     @default(USER)
+  clients   Client[]
+  projects  Project[]
+  assets    Asset[]
+  variants  Variant[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+enum Role { ADMIN USER }
+
+model Client {
+  id              String   @id @default(uuid())
+  name            String
+  description     String?
+  createdByUserId String
+  createdByUser   User     @relation(fields: [createdByUserId], references: [id])
+  projects        Project[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Project {
+  id              String   @id @default(uuid())
+  clientId        String
+  client          Client   @relation(fields: [clientId], references: [id])
+  name            String
+  description     String?
+  createdByUserId String
+  createdByUser   User     @relation(fields: [createdByUserId], references: [id])
+  assets          Asset[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Asset {
+  id              String   @id @default(uuid())
+  projectId       String
+  project         Project  @relation(fields: [projectId], references: [id])
+  name            String
+  templateSvg     String
+  templateFonts   Json     // [{family,url,weight,style}]
+  defaultBindings Json     // {headline,subheadline,cta,image}
+  styleHints      Json     // {palette,brand,notes}
+  createdByUserId String
+  createdByUser   User     @relation(fields: [createdByUserId], references: [id])
+  variants        Variant[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Variant {
+  id              String   @id @default(uuid())
+  assetId         String
+  asset           Asset    @relation(fields: [assetId], references: [id])
+  source          VariantSource @default(USER)
+  bindings        Json     // {headline,subheadline,cta,imageUrl}
+  renderSvg       String
+  renderPngUrl    String?
+  status          VariantStatus @default(DRAFT)
+  errorMessage    String?
+  createdByUserId String
+  createdByUser   User     @relation(fields: [createdByUserId], references: [id])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+enum VariantSource { USER AUTO }
+enum VariantStatus { DRAFT READY ERROR }
+
+========================
+E) API ENDPOINTS (ROUTE HANDLERS)
+========================
+Implement with RBAC + Zod validation:
+
+Auth:
+- POST /api/auth/login
+- POST /api/auth/logout
+- GET  /api/me
+
+Users (ADMIN only):
+- GET  /api/users
+- POST /api/users
+- DELETE /api/users/:id
+
+Clients:
+- GET/POST /api/clients
+- GET/PATCH/DELETE /api/clients/:id
+
+Projects:
+- GET/POST /api/projects (support ?clientId=)
+- GET/PATCH/DELETE /api/projects/:id
+
+Assets:
+- GET/POST /api/assets (support ?projectId=)
+- GET/PATCH/DELETE /api/assets/:id
+
+Variants:
+- POST /api/variants                 // manual creation
+- GET  /api/variants?assetId=...
+- GET  /api/variants/:id
+- PATCH/DELETE /api/variants/:id
+- POST /api/variants/generate        // bulk AUTO generate
+
+Utilities:
+- POST /api/uploads/sign             // GCS signed PUT
+- POST /api/render/preview           // render PNG from asset+bindings OR raw svg+fonts
+- POST /api/generate/text            // LLM JSON output
+- POST /api/generate/image           // Gemini image(s)
+
+Error format example:
+{ "ok": false, "error": { "code": "FORBIDDEN", "message": "Not owner" } }
+
+========================
+F) RENDERING & FONTS
+========================
+- Treat SVG as the source of truth.
+- Embed fonts by fetching TTF/OTF from GCS and injecting @font-face with data: URLs into <style>.
+- Token replacement for {{headline}}, {{subheadline}}, {{cta}}, {{image}}.
+- Provide text wrapping that respects box width by splitting into <tspan> lines (use opentype.js or node-canvas metrics + binary search).
+- Sanitize SVG to disallow <script>, event handlers, remote hrefs.
+- Rasterize with resvg → PNG (via sharp if needed). Default export width 1200 px.
+
+========================
+G) AI INTEGRATIONS
+========================
+Text Generation (POST /api/generate/text):
+- Input:
+  {
+    "assetId": "string",
+    "count": 1..10,
+    "constraints": {
+      "headlineMaxWords"?: number,
+      "subheadlineMaxChars"?: number,
+      "ctaPhrasesAllowed"?: string[],
+      "tone"?: "conversational" | "direct" | "playful" | "formal",
+      "bannedPhrases"?: string[]
+    }
+  }
+- Output strictly:
+  { "ok": true, "data": { "variants": [ { "headline": "...", "subheadline": "...", "cta": "..." } ] } }
+
+Image Generation (POST /api/generate/image):
+- Input:
+  {
+    "assetId": "string",
+    "count": 1..5,
+    "seedImageUrl"?: "string"
+  }
+- Prompt must preserve template layout and text-safe boxes, brand palette, and avoid embedded text in the image.
+- Use GEMINI_IMAGE_MODEL=gemini-2.5-flash-image (“nano banana”).
+
+========================
+H) ACCEPTANCE CRITERIA (MVP)
+========================
+- RBAC enforced server-side; /api/me returns role & id.
+- CRUD works with ownership checks for USER; ADMIN unrestricted.
+- Asset editor saves valid tokenized SVG + fonts JSON.
+- Manual variant creates PNG in GCS; preview equals server export.
+- AUTO variant pipeline: text JSON + Gemini images → batch renders; partial failures don’t nuke the batch.
+- Signed uploads limited to images/svg/ttf/otf; max 20MB.
+- Tests: unit for guards & renderer; e2e smoke for core flow.
+
+========================
+I) QUALITY GATES
+========================
+- ESLint/Prettier clean.
+- TypeScript noImplicitAny, strict true.
+- Zod validated inputs, typed outputs.
+- 80% unit coverage for render utils and RBAC.
+- Playwright baseline for: login, create client→project→asset, create manual variant, call auto text gen (mock), call image gen (mock), see thumbnails.
+
+========================
+J) COMPONENT INTAKE PROTOCOL
+========================
+We will iteratively feed you “component requests.” For each, you must:
+
+1) Parse a YAML spec (see template below).
+2) Produce:
+   a) A change plan (files to create/modify, brief rationale).
+   b) The exact code diffs or full file contents (no placeholders).
+   c) Any migration steps (Prisma schema + migration).
+   d) Tests (unit/e2e) and test data.
+   e) Updates to /docs/PRD.md if API/UX changes.
+   f) A post-merge runbook (env vars, commands).
+
+3) Validate against Acceptance Criteria and Quality Gates.
+
+Component Spec (YAML) — copy this template verbatim for each request:
+---
+component: <short-name>
+type: [api|ui|db|job|integration|rendering|utility|infra]
+summary: <one-line summary>
+motivation: <why this is needed>
+inputs:
+  - name: <param>
+    type: <string|number|boolean|json|file>
+    constraints: <validation rules / enum / ranges>
+outputs:
+  - name: <result>
+    type: <json|file|view>
+acceptance:
+  - <bullet acceptance test #1>
+  - <bullet acceptance test #2>
+non_goals:
+  - <explicitly out of scope>
+security:
+  - <validation/sanitization expectations>
+perf:
+  - <latency/size ceilings>
+notes:
+  - <edge cases, gotchas>
+---
+
+Output Format for Every Component:
+1) CHANGE PLAN
+2) CODE (file-by-file; give complete files where substantial)
+3) MIGRATIONS (if any)
+4) TESTS (unit + e2e snippets)
+5) PRD UPDATES (markdown patch for /docs/PRD.md)
+6) RUNBOOK (commands, env updates)
+
+========================
+K) FIRST TASKS TO EXECUTE NOW
+========================
+1) Create repo scaffold, dependencies, Next.js 14 App Router, Tailwind, shadcn/ui, Prisma, next-auth (Credentials).
+2) Implement Prisma schema (Section D) + seed admin/user accounts.
+3) Implement Auth (/api/auth/login, /api/auth/logout, /api/me) and RBAC helpers.
+4) Implement GCS signed upload endpoint (/api/uploads/sign) with MIME + size validation.
+5) Create /docs/PRD.md per Section B, fully written with route signatures and examples.
+
+When finished, print:
+- The folder tree
+- A ready-to-run checklist:
+  - env variables to set
+  - prisma migrate & seed command
+  - dev run command
+- Next suggested component specs to feed via the Intake Protocol:
+  a) “SVG Template Editor (UI)”
+  b) “Render Pipeline (SVG➜PNG)”
+  c) “Manual Variant Creation (API)”
+  d) “Auto Text Generation (API)”
+  e) “Gemini Image Generation (API)”
+  f) “Bulk Variants (API+job)”
+  g) “Variants Grid (UI)”
+
+Adhere strictly to this prompt. Do not ask for clarifications; if data is missing, proceed with reasonable defaults and document assumptions in /docs/PRD.md.
