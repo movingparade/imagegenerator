@@ -84,9 +84,9 @@ export default function Sidebar({ user }: SidebarProps) {
             const isActive = location === item.href;
             return (
               <Link key={item.name} href={item.href}>
-                <a
+                <div
                   className={cn(
-                    "flex items-center space-x-3 px-3 py-2 rounded-md font-medium transition-colors",
+                    "flex items-center space-x-3 px-3 py-2 rounded-md font-medium transition-colors cursor-pointer",
                     isActive
                       ? "bg-accent text-accent-foreground"
                       : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
@@ -95,7 +95,7 @@ export default function Sidebar({ user }: SidebarProps) {
                 >
                   <item.icon className="w-5 h-5" />
                   <span>{item.name}</span>
-                </a>
+                </div>
               </Link>
             );
           })}
@@ -109,9 +109,9 @@ export default function Sidebar({ user }: SidebarProps) {
             const isActive = location === item.href;
             return (
               <Link key={item.name} href={item.href}>
-                <a
+                <div
                   className={cn(
-                    "flex items-center space-x-3 px-3 py-2 rounded-md font-medium transition-colors",
+                    "flex items-center space-x-3 px-3 py-2 rounded-md font-medium transition-colors cursor-pointer",
                     isActive
                       ? "bg-accent text-accent-foreground"
                       : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
@@ -120,7 +120,7 @@ export default function Sidebar({ user }: SidebarProps) {
                 >
                   <item.icon className="w-5 h-5" />
                   <span>{item.name}</span>
-                </a>
+                </div>
               </Link>
             );
           })}
