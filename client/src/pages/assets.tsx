@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Trash2, Edit, Image, FolderOpen, Code, Plus, Sparkles, User, Bot, CheckCircle, AlertCircle, Clock, Upload, FileImage } from "lucide-react";
+import { Trash2, Edit, Image, FolderOpen, Code, Plus, Sparkles, User, Bot, CheckCircle, AlertCircle, Clock, Upload, FileImage, RefreshCw } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
 export default function Assets() {
@@ -247,6 +247,24 @@ export default function Assets() {
     },
   });
 
+  const regenerateTemplateMutation = useMutation({
+    mutationFn: (assetId: string) => apiPost(`/api/assets/${assetId}/generate-template`, {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/assets"] });
+      toast({
+        title: "Success",
+        description: "Template regenerated from master asset successfully",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   const resetNewAsset = () => {
     setNewAsset({ 
       name: "", 
@@ -319,6 +337,12 @@ export default function Assets() {
   const handleDeleteVariant = (id: string) => {
     if (confirm("Are you sure you want to delete this variant?")) {
       deleteVariantMutation.mutate(id);
+    }
+  };
+
+  const handleRegenerateTemplate = (assetId: string, assetName: string) => {
+    if (confirm(`Are you sure you want to regenerate the template for "${assetName}"? This will overwrite the existing template.`)) {
+      regenerateTemplateMutation.mutate(assetId);
     }
   };
 
@@ -436,6 +460,18 @@ export default function Assets() {
                         </p>
                       </div>
                       <div className="flex space-x-2">
+                        {asset.masterAssetUrl && (
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            onClick={() => handleRegenerateTemplate(asset.id, asset.name)}
+                            disabled={regenerateTemplateMutation.isPending}
+                            title="Regenerate template from master asset"
+                            data-testid={`button-regenerate-template-${asset.id}`}
+                          >
+                            <RefreshCw className={`w-4 h-4 ${regenerateTemplateMutation.isPending ? 'animate-spin' : ''}`} />
+                          </Button>
+                        )}
                         <Button 
                           variant="ghost" 
                           size="sm" 

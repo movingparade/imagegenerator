@@ -20,6 +20,7 @@ import {
 import { 
   generateTextVariants,
   generateImages,
+  generateTemplateFromMasterAsset,
   validateTextGenerationRequest,
   validateImageGenerationRequest 
 } from "./gemini";
@@ -266,7 +267,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/assets", requireAuth, async (req, res) => {
     try {
       const user = (req as AuthenticatedRequest).user;
-      const assetData = insertAssetSchema.parse(req.body);
+      let assetData = insertAssetSchema.parse(req.body);
+
+      // If a master asset URL is provided, generate template from it
+      if (assetData.masterAssetUrl) {
+        try {
+          // Get project context for template generation
+          const project = await storage.getProject(assetData.projectId, user.id, user.role === "ADMIN");
+          if (!project) {
+            return res.status(404).json({
+              ok: false,
+              error: { code: "NOT_FOUND", message: "Project not found" }
+            });
+          }
+
+          console.log(`Generating template from master asset: ${assetData.masterAssetUrl}`);
+          
+          // Generate template from master asset
+          const templateData = await generateTemplateFromMasterAsset(
+            assetData.masterAssetUrl,
+            assetData.name,
+            {
+              name: project.name,
+              brief: project.brief || undefined,
+              clientName: project.client.name
+            }
+          );
+
+          // Update asset data with generated template
+          assetData = {
+            ...assetData,
+            templateSvg: templateData.templateSvg,
+            templateFonts: templateData.templateFonts,
+            defaultBindings: templateData.defaultBindings,
+            styleHints: templateData.styleHints,
+          };
+
+          console.log(`Template generated successfully for asset: ${assetData.name}`);
+        } catch (templateError) {
+          console.error("Template generation failed:", templateError);
+          // Continue with manual template creation if generation fails
+          console.log("Falling back to manual template creation");
+        }
+      }
+
       const asset = await storage.createAsset({
         ...assetData,
         createdByUserId: user.id,
@@ -322,6 +366,69 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json({ ok: true, data: { message: "Asset deleted successfully" } });
     } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  // Generate template from master asset
+  app.post("/api/assets/:id/generate-template", requireAuth, async (req, res) => {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      
+      // Get the asset
+      const asset = await storage.getAsset(req.params.id, user.id, user.role === "ADMIN");
+      if (!asset) {
+        return res.status(404).json({
+          ok: false,
+          error: { code: "NOT_FOUND", message: "Asset not found or access denied" }
+        });
+      }
+
+      // Check if asset has master asset URL
+      if (!asset.masterAssetUrl) {
+        return res.status(400).json({
+          ok: false,
+          error: { code: "INVALID_REQUEST", message: "Asset has no master asset URL" }
+        });
+      }
+
+      console.log(`Regenerating template from master asset: ${asset.masterAssetUrl}`);
+      
+      // Generate template from master asset
+      const templateData = await generateTemplateFromMasterAsset(
+        asset.masterAssetUrl,
+        asset.name,
+        {
+          name: asset.project.name,
+          brief: asset.project.brief || undefined,
+          clientName: asset.project.client.name
+        }
+      );
+
+      // Update the asset with generated template
+      const updatedAsset = await storage.updateAsset(
+        req.params.id,
+        {
+          templateSvg: templateData.templateSvg,
+          templateFonts: templateData.templateFonts,
+          defaultBindings: templateData.defaultBindings,
+          styleHints: templateData.styleHints,
+        },
+        user.id,
+        user.role === "ADMIN"
+      );
+
+      if (!updatedAsset) {
+        return res.status(500).json({
+          ok: false,
+          error: { code: "UPDATE_FAILED", message: "Failed to update asset with generated template" }
+        });
+      }
+
+      console.log(`Template regenerated successfully for asset: ${asset.name}`);
+      res.json({ ok: true, data: updatedAsset });
+    } catch (error) {
+      console.error("Template regeneration failed:", error);
       handleError(res, error);
     }
   });
