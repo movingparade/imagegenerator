@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Client, Project } from "@/types";
-import { apiPost, apiDelete } from "@/lib/api";
+import { apiPost, apiPatch, apiDelete } from "@/lib/api";
 import Header from "@/components/layout/header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -16,9 +16,11 @@ import { formatDistanceToNow } from "date-fns";
 
 export default function Clients() {
   const [showCreateClientDialog, setShowCreateClientDialog] = useState(false);
+  const [showEditClientDialog, setShowEditClientDialog] = useState(false);
   const [showCreateProjectDialog, setShowCreateProjectDialog] = useState(false);
   const [selectedClientId, setSelectedClientId] = useState<string>("");
   const [newClient, setNewClient] = useState({ name: "", description: "" });
+  const [editingClient, setEditingClient] = useState({ id: "", name: "", description: "" });
   const [newProject, setNewProject] = useState({ name: "", description: "", clientId: "" });
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -41,6 +43,27 @@ export default function Clients() {
       toast({
         title: "Success",
         description: "Client created successfully",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const editClientMutation = useMutation({
+    mutationFn: ({ id, ...client }: { id: string; name: string; description: string }) => 
+      apiPatch<Client>(`/api/clients/${id}`, client),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/clients"] });
+      setShowEditClientDialog(false);
+      setEditingClient({ id: "", name: "", description: "" });
+      toast({
+        title: "Success",
+        description: "Client updated successfully",
       });
     },
     onError: (error: Error) => {
@@ -133,6 +156,11 @@ export default function Clients() {
     createClientMutation.mutate(newClient);
   };
 
+  const handleEditClient = (e: React.FormEvent) => {
+    e.preventDefault();
+    editClientMutation.mutate(editingClient);
+  };
+
   const handleCreateProject = (e: React.FormEvent) => {
     e.preventDefault();
     createProjectMutation.mutate(newProject);
@@ -142,6 +170,15 @@ export default function Clients() {
     if (confirm("Are you sure you want to delete this client?")) {
       deleteClientMutation.mutate(id);
     }
+  };
+
+  const openEditClient = (client: Client) => {
+    setEditingClient({ 
+      id: client.id, 
+      name: client.name, 
+      description: client.description || "" 
+    });
+    setShowEditClientDialog(true);
   };
 
   const handleArchiveProject = (id: string) => {
@@ -226,7 +263,12 @@ export default function Clients() {
                         </p>
                       </div>
                       <div className="flex space-x-2">
-                        <Button variant="ghost" size="sm" data-testid={`button-edit-${client.id}`}>
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          onClick={() => openEditClient(client)}
+                          data-testid={`button-edit-${client.id}`}
+                        >
                           <Edit className="w-4 h-4" />
                         </Button>
                         <Button 
@@ -358,6 +400,53 @@ export default function Clients() {
                 variant="outline"
                 onClick={() => setShowCreateClientDialog(false)}
                 data-testid="button-cancel-create"
+              >
+                Cancel
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Client Dialog */}
+      <Dialog open={showEditClientDialog} onOpenChange={setShowEditClientDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Client</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleEditClient} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="editName">Client Name</Label>
+              <Input
+                id="editName"
+                value={editingClient.name}
+                onChange={(e) => setEditingClient({ ...editingClient, name: e.target.value })}
+                required
+                data-testid="input-edit-client-name"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="editDescription">Description (optional)</Label>
+              <Textarea
+                id="editDescription"
+                value={editingClient.description}
+                onChange={(e) => setEditingClient({ ...editingClient, description: e.target.value })}
+                data-testid="input-edit-client-description"
+              />
+            </div>
+            <div className="flex space-x-2">
+              <Button 
+                type="submit" 
+                disabled={editClientMutation.isPending}
+                data-testid="button-save-client"
+              >
+                {editClientMutation.isPending ? "Saving..." : "Save Changes"}
+              </Button>
+              <Button 
+                type="button" 
+                variant="outline"
+                onClick={() => setShowEditClientDialog(false)}
+                data-testid="button-cancel-edit"
               >
                 Cancel
               </Button>

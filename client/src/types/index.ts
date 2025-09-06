@@ -21,6 +21,8 @@ export interface Project {
   clientId: string;
   name: string;
   description: string | null;
+  brief: string | null;
+  contentKnowledge: any;
   archived: string | null;
   createdByUserId: string;
   createdAt: string;
@@ -32,6 +34,8 @@ export interface Asset {
   id: string;
   projectId: string;
   name: string;
+  masterAssetUrl: string | null;
+  masterAssetType: string | null;
   templateSvg: string;
   templateFonts: any;
   defaultBindings: any;

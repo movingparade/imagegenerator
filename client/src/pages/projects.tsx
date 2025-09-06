@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Project, Client, Asset } from "@/types";
-import { apiPost, apiDelete } from "@/lib/api";
+import { apiPost, apiPatch, apiDelete } from "@/lib/api";
 import Header from "@/components/layout/header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,16 +11,25 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Trash2, Edit, FolderOpen, Building, Plus, FileText, Image } from "lucide-react";
+import { Trash2, Edit, FolderOpen, Building, Plus, FileText, Image, Upload } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
 export default function Projects() {
   const [showCreateProjectDialog, setShowCreateProjectDialog] = useState(false);
+  const [showEditProjectDialog, setShowEditProjectDialog] = useState(false);
   const [showCreateAssetDialog, setShowCreateAssetDialog] = useState(false);
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const [newProject, setNewProject] = useState({ 
     name: "", 
     description: "", 
+    brief: "",
+    clientId: "" 
+  });
+  const [editingProject, setEditingProject] = useState({ 
+    id: "",
+    name: "", 
+    description: "", 
+    brief: "",
     clientId: "" 
   });
   const [newAsset, setNewAsset] = useState({ 
@@ -44,16 +53,37 @@ export default function Projects() {
   });
 
   const createProjectMutation = useMutation({
-    mutationFn: (project: { name: string; description: string; clientId: string }) => 
+    mutationFn: (project: { name: string; description: string; brief: string; clientId: string }) => 
       apiPost<Project>("/api/projects", project),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       setShowCreateProjectDialog(false);
-      setNewProject({ name: "", description: "", clientId: "" });
+      setNewProject({ name: "", description: "", brief: "", clientId: "" });
       toast({
         title: "Success",
         description: "Project created successfully",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const editProjectMutation = useMutation({
+    mutationFn: ({ id, ...project }: { id: string; name: string; description: string; brief: string; clientId: string }) => 
+      apiPatch<Project>(`/api/projects/${id}`, project),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
+      setShowEditProjectDialog(false);
+      setEditingProject({ id: "", name: "", description: "", brief: "", clientId: "" });
+      toast({
+        title: "Success",
+        description: "Project updated successfully",
       });
     },
     onError: (error: Error) => {
@@ -124,15 +154,31 @@ export default function Projects() {
     createProjectMutation.mutate(newProject);
   };
 
+  const handleEditProject = (e: React.FormEvent) => {
+    e.preventDefault();
+    editProjectMutation.mutate(editingProject);
+  };
+
   const handleCreateAsset = (e: React.FormEvent) => {
     e.preventDefault();
     createAssetMutation.mutate(newAsset);
   };
 
   const handleDeleteProject = (id: string) => {
-    if (confirm("Are you sure you want to delete this project?")) {
+    if (confirm("Are you sure you want to delete this project? This will also delete all associated assets and variants.")) {
       deleteProjectMutation.mutate(id);
     }
+  };
+
+  const openEditProject = (project: Project) => {
+    setEditingProject({
+      id: project.id,
+      name: project.name,
+      description: project.description || "",
+      brief: project.brief || "",
+      clientId: project.clientId
+    });
+    setShowEditProjectDialog(true);
   };
 
   const getAssetsForProject = (projectId: string) => {
@@ -209,7 +255,12 @@ export default function Projects() {
                         </p>
                       </div>
                       <div className="flex space-x-2">
-                        <Button variant="ghost" size="sm" data-testid={`button-edit-${project.id}`}>
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          onClick={() => openEditProject(project)}
+                          data-testid={`button-edit-${project.id}`}
+                        >
                           <Edit className="w-4 h-4" />
                         </Button>
                         <Button 
@@ -227,6 +278,13 @@ export default function Projects() {
                       <p className="text-sm text-muted-foreground mt-2">
                         {project.description}
                       </p>
+                    )}
+                    
+                    {project.brief && (
+                      <div className="mt-2 p-2 bg-muted/50 rounded-md">
+                        <p className="text-xs font-medium text-muted-foreground mb-1">Brief:</p>
+                        <p className="text-sm">{project.brief}</p>
+                      </div>
                     )}
                   </CardHeader>
                   
@@ -295,7 +353,7 @@ export default function Projects() {
 
       {/* Create Project Dialog */}
       <Dialog open={showCreateProjectDialog} onOpenChange={setShowCreateProjectDialog}>
-        <DialogContent>
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Create New Project</DialogTitle>
           </DialogHeader>
@@ -337,6 +395,20 @@ export default function Projects() {
                 data-testid="input-project-description"
               />
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="brief">Project Brief</Label>
+              <Textarea
+                id="brief"
+                value={newProject.brief}
+                onChange={(e) => setNewProject({ ...newProject, brief: e.target.value })}
+                placeholder="Describe the project requirements, goals, and key information..."
+                rows={4}
+                data-testid="input-project-brief"
+              />
+              <p className="text-xs text-muted-foreground">
+                Add project requirements, target audience, key messaging, and any other relevant information
+              </p>
+            </div>
             <div className="flex space-x-2">
               <Button 
                 type="submit" 
@@ -350,6 +422,85 @@ export default function Projects() {
                 variant="outline"
                 onClick={() => setShowCreateProjectDialog(false)}
                 data-testid="button-cancel-create"
+              >
+                Cancel
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Project Dialog */}
+      <Dialog open={showEditProjectDialog} onOpenChange={setShowEditProjectDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit Project</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleEditProject} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="editClient">Client</Label>
+              <Select
+                value={editingProject.clientId}
+                onValueChange={(value) => setEditingProject({ ...editingProject, clientId: value })}
+              >
+                <SelectTrigger data-testid="select-edit-client">
+                  <SelectValue placeholder="Select a client" />
+                </SelectTrigger>
+                <SelectContent>
+                  {clients.map((client) => (
+                    <SelectItem key={client.id} value={client.id}>
+                      {client.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="editName">Project Name</Label>
+              <Input
+                id="editName"
+                value={editingProject.name}
+                onChange={(e) => setEditingProject({ ...editingProject, name: e.target.value })}
+                required
+                data-testid="input-edit-project-name"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="editDescription">Description (optional)</Label>
+              <Textarea
+                id="editDescription"
+                value={editingProject.description}
+                onChange={(e) => setEditingProject({ ...editingProject, description: e.target.value })}
+                data-testid="input-edit-project-description"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="editBrief">Project Brief</Label>
+              <Textarea
+                id="editBrief"
+                value={editingProject.brief}
+                onChange={(e) => setEditingProject({ ...editingProject, brief: e.target.value })}
+                placeholder="Describe the project requirements, goals, and key information..."
+                rows={4}
+                data-testid="input-edit-project-brief"
+              />
+              <p className="text-xs text-muted-foreground">
+                Add project requirements, target audience, key messaging, and any other relevant information
+              </p>
+            </div>
+            <div className="flex space-x-2">
+              <Button 
+                type="submit" 
+                disabled={editProjectMutation.isPending}
+                data-testid="button-save-project"
+              >
+                {editProjectMutation.isPending ? "Saving..." : "Save Changes"}
+              </Button>
+              <Button 
+                type="button" 
+                variant="outline"
+                onClick={() => setShowEditProjectDialog(false)}
+                data-testid="button-cancel-edit"
               >
                 Cancel
               </Button>

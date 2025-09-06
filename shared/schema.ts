@@ -35,6 +35,8 @@ export const projects = pgTable("projects", {
   clientId: uuid("client_id").notNull().references(() => clients.id),
   name: text("name").notNull(),
   description: text("description"),
+  brief: text("brief"), // Project brief/requirements
+  contentKnowledge: json("content_knowledge").default(sql`'{}'`), // Knowledge base content and uploads
   archived: timestamp("archived").default(sql`null`),
   createdByUserId: uuid("created_by_user_id").notNull().references(() => users.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -46,6 +48,8 @@ export const assets = pgTable("assets", {
   id: uuid("id").primaryKey().defaultRandom(),
   projectId: uuid("project_id").notNull().references(() => projects.id),
   name: text("name").notNull(),
+  masterAssetUrl: text("master_asset_url"), // URL to uploaded master asset file
+  masterAssetType: text("master_asset_type"), // File type (image, video, document, etc.)
   templateSvg: text("template_svg").notNull(),
   templateFonts: json("template_fonts").notNull(), // {family,url,weight,style}[]
   defaultBindings: json("default_bindings").notNull(), // {headline,subheadline,cta,image}
