@@ -219,6 +219,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/projects/:id/archive", requireAuth, async (req, res) => {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const project = await storage.archiveProject(req.params.id, user.id, user.role === "ADMIN");
+      if (!project) {
+        return res.status(404).json({
+          ok: false,
+          error: { code: "NOT_FOUND", message: "Project not found or access denied" }
+        });
+      }
+      res.json({ ok: true, data: project });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  app.post("/api/projects/:id/unarchive", requireAuth, async (req, res) => {
+    try {
+      const user = (req as AuthenticatedRequest).user;
+      const project = await storage.unarchiveProject(req.params.id, user.id, user.role === "ADMIN");
+      if (!project) {
+        return res.status(404).json({
+          ok: false,
+          error: { code: "NOT_FOUND", message: "Project not found or access denied" }
+        });
+      }
+      res.json({ ok: true, data: project });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
   // Assets routes
   app.get("/api/assets", requireAuth, async (req, res) => {
     try {
