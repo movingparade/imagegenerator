@@ -35,6 +35,7 @@ export const projects = pgTable("projects", {
   clientId: uuid("client_id").notNull().references(() => clients.id),
   name: text("name").notNull(),
   description: text("description"),
+  archived: timestamp("archived").default(sql`null`),
   createdByUserId: uuid("created_by_user_id").notNull().references(() => users.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
