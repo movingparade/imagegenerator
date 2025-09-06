@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Trash2, Edit, Image, FolderOpen, Code, Plus, Sparkles, User, Bot, CheckCircle, AlertCircle, Clock, Upload, FileImage, RefreshCw } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { ObjectUploader } from "@/components/ObjectUploader";
 
 export default function Assets() {
   const [showCreateAssetDialog, setShowCreateAssetDialog] = useState(false);
@@ -640,34 +641,98 @@ export default function Assets() {
               <p className="text-sm text-muted-foreground">
                 Upload a master asset file that variants will be built from (images, videos, documents, etc.)
               </p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="masterAssetUrl">Master Asset URL</Label>
-                  <Input
-                    id="masterAssetUrl"
-                    value={newAsset.masterAssetUrl}
-                    onChange={(e) => setNewAsset({ ...newAsset, masterAssetUrl: e.target.value })}
-                    placeholder="https://example.com/asset.jpg"
-                    data-testid="input-master-asset-url"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="masterAssetType">Asset Type</Label>
-                  <Select
-                    value={newAsset.masterAssetType}
-                    onValueChange={(value) => setNewAsset({ ...newAsset, masterAssetType: value })}
+              
+              {/* File Upload Option */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <Label>Upload File</Label>
+                  <ObjectUploader
+                    maxNumberOfFiles={1}
+                    maxFileSize={50485760} // 50MB
+                    onGetUploadParameters={async () => {
+                      const response = await fetch("/api/objects/upload", {
+                        method: "POST",
+                        credentials: "include"
+                      });
+                      const data = await response.json();
+                      if (!data.ok) throw new Error("Failed to get upload URL");
+                      return { method: "PUT", url: data.data.uploadURL };
+                    }}
+                    onComplete={(result) => {
+                      if (result.successful && result.successful.length > 0) {
+                        const uploadedFile = result.successful[0];
+                        const fileUrl = uploadedFile.uploadURL;
+                        const fileName = uploadedFile.name;
+                        const fileType = fileName.split('.').pop()?.toLowerCase() || 'other';
+                        
+                        // Determine asset type based on file extension
+                        let assetType = 'other';
+                        if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(fileType)) {
+                          assetType = 'image';
+                        } else if (['mp4', 'avi', 'mov', 'wmv'].includes(fileType)) {
+                          assetType = 'video';
+                        } else if (['pdf', 'doc', 'docx', 'txt'].includes(fileType)) {
+                          assetType = 'document';
+                        } else if (['mp3', 'wav', 'ogg'].includes(fileType)) {
+                          assetType = 'audio';
+                        }
+                        
+                        setNewAsset({
+                          ...newAsset,
+                          masterAssetUrl: fileUrl,
+                          masterAssetType: assetType
+                        });
+                        
+                        toast({
+                          title: "Success",
+                          description: `File "${fileName}" uploaded successfully`
+                        });
+                      }
+                    }}
+                    buttonClassName="w-full"
                   >
-                    <SelectTrigger data-testid="select-master-asset-type">
-                      <SelectValue placeholder="Select asset type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="image">Image</SelectItem>
-                      <SelectItem value="video">Video</SelectItem>
-                      <SelectItem value="document">Document</SelectItem>
-                      <SelectItem value="audio">Audio</SelectItem>
-                      <SelectItem value="other">Other</SelectItem>
-                    </SelectContent>
-                  </Select>
+                    <Upload className="w-4 h-4 mr-2" />
+                    Choose File to Upload
+                  </ObjectUploader>
+                </div>
+                
+                {/* OR Divider */}
+                <div className="flex items-center space-x-4">
+                  <div className="flex-1 border-t"></div>
+                  <span className="text-sm text-muted-foreground">OR</span>
+                  <div className="flex-1 border-t"></div>
+                </div>
+                
+                {/* URL Input Option */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="masterAssetUrl">Master Asset URL</Label>
+                    <Input
+                      id="masterAssetUrl"
+                      value={newAsset.masterAssetUrl}
+                      onChange={(e) => setNewAsset({ ...newAsset, masterAssetUrl: e.target.value })}
+                      placeholder="https://example.com/asset.jpg"
+                      data-testid="input-master-asset-url"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="masterAssetType">Asset Type</Label>
+                    <Select
+                      value={newAsset.masterAssetType}
+                      onValueChange={(value) => setNewAsset({ ...newAsset, masterAssetType: value })}
+                    >
+                      <SelectTrigger data-testid="select-master-asset-type">
+                        <SelectValue placeholder="Select asset type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="image">Image</SelectItem>
+                        <SelectItem value="video">Video</SelectItem>
+                        <SelectItem value="document">Document</SelectItem>
+                        <SelectItem value="audio">Audio</SelectItem>
+                        <SelectItem value="other">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
               </div>
             </div>
@@ -783,34 +848,97 @@ export default function Assets() {
                 <Upload className="w-5 h-5" />
                 <h3 className="text-lg font-medium">Master Asset</h3>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="editMasterAssetUrl">Master Asset URL</Label>
-                  <Input
-                    id="editMasterAssetUrl"
-                    value={editingAsset.masterAssetUrl}
-                    onChange={(e) => setEditingAsset({ ...editingAsset, masterAssetUrl: e.target.value })}
-                    placeholder="https://example.com/asset.jpg"
-                    data-testid="input-edit-master-asset-url"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="editMasterAssetType">Asset Type</Label>
-                  <Select
-                    value={editingAsset.masterAssetType}
-                    onValueChange={(value) => setEditingAsset({ ...editingAsset, masterAssetType: value })}
+              {/* File Upload Option */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <Label>Upload File</Label>
+                  <ObjectUploader
+                    maxNumberOfFiles={1}
+                    maxFileSize={50485760} // 50MB
+                    onGetUploadParameters={async () => {
+                      const response = await fetch("/api/objects/upload", {
+                        method: "POST",
+                        credentials: "include"
+                      });
+                      const data = await response.json();
+                      if (!data.ok) throw new Error("Failed to get upload URL");
+                      return { method: "PUT", url: data.data.uploadURL };
+                    }}
+                    onComplete={(result) => {
+                      if (result.successful && result.successful.length > 0) {
+                        const uploadedFile = result.successful[0];
+                        const fileUrl = uploadedFile.uploadURL;
+                        const fileName = uploadedFile.name;
+                        const fileType = fileName.split('.').pop()?.toLowerCase() || 'other';
+                        
+                        // Determine asset type based on file extension
+                        let assetType = 'other';
+                        if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(fileType)) {
+                          assetType = 'image';
+                        } else if (['mp4', 'avi', 'mov', 'wmv'].includes(fileType)) {
+                          assetType = 'video';
+                        } else if (['pdf', 'doc', 'docx', 'txt'].includes(fileType)) {
+                          assetType = 'document';
+                        } else if (['mp3', 'wav', 'ogg'].includes(fileType)) {
+                          assetType = 'audio';
+                        }
+                        
+                        setEditingAsset({
+                          ...editingAsset,
+                          masterAssetUrl: fileUrl,
+                          masterAssetType: assetType
+                        });
+                        
+                        toast({
+                          title: "Success",
+                          description: `File "${fileName}" uploaded successfully`
+                        });
+                      }
+                    }}
+                    buttonClassName="w-full"
                   >
-                    <SelectTrigger data-testid="select-edit-master-asset-type">
-                      <SelectValue placeholder="Select asset type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="image">Image</SelectItem>
-                      <SelectItem value="video">Video</SelectItem>
-                      <SelectItem value="document">Document</SelectItem>
-                      <SelectItem value="audio">Audio</SelectItem>
-                      <SelectItem value="other">Other</SelectItem>
-                    </SelectContent>
-                  </Select>
+                    <Upload className="w-4 h-4 mr-2" />
+                    Choose File to Upload
+                  </ObjectUploader>
+                </div>
+                
+                {/* OR Divider */}
+                <div className="flex items-center space-x-4">
+                  <div className="flex-1 border-t"></div>
+                  <span className="text-sm text-muted-foreground">OR</span>
+                  <div className="flex-1 border-t"></div>
+                </div>
+                
+                {/* URL Input Option */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="editMasterAssetUrl">Master Asset URL</Label>
+                    <Input
+                      id="editMasterAssetUrl"
+                      value={editingAsset.masterAssetUrl}
+                      onChange={(e) => setEditingAsset({ ...editingAsset, masterAssetUrl: e.target.value })}
+                      placeholder="https://example.com/asset.jpg"
+                      data-testid="input-edit-master-asset-url"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="editMasterAssetType">Asset Type</Label>
+                    <Select
+                      value={editingAsset.masterAssetType}
+                      onValueChange={(value) => setEditingAsset({ ...editingAsset, masterAssetType: value })}
+                    >
+                      <SelectTrigger data-testid="select-edit-master-asset-type">
+                        <SelectValue placeholder="Select asset type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="image">Image</SelectItem>
+                        <SelectItem value="video">Video</SelectItem>
+                        <SelectItem value="document">Document</SelectItem>
+                        <SelectItem value="audio">Audio</SelectItem>
+                        <SelectItem value="other">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
               </div>
             </div>

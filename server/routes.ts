@@ -25,6 +25,7 @@ import {
   validateImageGenerationRequest 
 } from "./gemini";
 import { z } from "zod";
+import { ObjectStorageService } from "./objectStorage";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Session middleware
@@ -663,6 +664,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ ok: true, data: results });
     } catch (error) {
       handleError(res, error);
+    }
+  });
+
+  // Object storage routes for file uploads
+  app.post("/api/objects/upload", requireAuth, async (req, res) => {
+    try {
+      const objectStorageService = new ObjectStorageService();
+      const uploadURL = await objectStorageService.getObjectEntityUploadURL();
+      res.json({ ok: true, data: { uploadURL } });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  // Serve uploaded files
+  app.get("/api/objects/:objectPath(*)", async (req, res) => {
+    try {
+      const objectStorageService = new ObjectStorageService();
+      const objectFile = await objectStorageService.getObjectEntityFile(req.path);
+      objectStorageService.downloadObject(objectFile, res);
+    } catch (error) {
+      console.error("Error serving object:", error);
+      return res.status(404).json({
+        ok: false,
+        error: { code: "NOT_FOUND", message: "File not found" }
+      });
     }
   });
 
