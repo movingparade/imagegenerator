@@ -97,13 +97,18 @@ export default function Assets() {
   });
 
   const createAssetMutation = useMutation({
-    mutationFn: (asset: typeof newAsset) => 
-      apiPost<Asset>("/api/assets", {
-        ...asset,
-        templateFonts: JSON.parse(asset.templateFonts),
-        defaultBindings: JSON.parse(asset.defaultBindings),
-        styleHints: JSON.parse(asset.styleHints),
-      }),
+    mutationFn: (asset: typeof newAsset) => {
+      try {
+        return apiPost<Asset>("/api/assets", {
+          ...asset,
+          templateFonts: asset.templateFonts ? JSON.parse(asset.templateFonts) : {},
+          defaultBindings: asset.defaultBindings ? JSON.parse(asset.defaultBindings) : {},
+          styleHints: asset.styleHints ? JSON.parse(asset.styleHints) : {},
+        });
+      } catch (error) {
+        throw new Error("Invalid JSON in template fields. Please check your input.");
+      }
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/assets"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
@@ -124,13 +129,18 @@ export default function Assets() {
   });
 
   const editAssetMutation = useMutation({
-    mutationFn: ({ id, ...asset }: typeof editingAsset) => 
-      apiPatch<Asset>(`/api/assets/${id}`, {
-        ...asset,
-        templateFonts: JSON.parse(asset.templateFonts),
-        defaultBindings: JSON.parse(asset.defaultBindings),
-        styleHints: JSON.parse(asset.styleHints),
-      }),
+    mutationFn: ({ id, ...asset }: typeof editingAsset) => {
+      try {
+        return apiPatch<Asset>(`/api/assets/${id}`, {
+          ...asset,
+          templateFonts: asset.templateFonts ? JSON.parse(asset.templateFonts) : {},
+          defaultBindings: asset.defaultBindings ? JSON.parse(asset.defaultBindings) : {},
+          styleHints: asset.styleHints ? JSON.parse(asset.styleHints) : {},
+        });
+      } catch (error) {
+        throw new Error("Invalid JSON in template fields. Please check your input.");
+      }
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/assets"] });
       setShowEditAssetDialog(false);
@@ -311,7 +321,25 @@ export default function Assets() {
       });
       return;
     }
-    createAssetMutation.mutate(newAsset);
+
+    // If master asset is provided, let server generate template; otherwise use manual template
+    if (newAsset.masterAssetUrl) {
+      // Server will generate template from master asset, so we submit minimal data
+      createAssetMutation.mutate({
+        ...newAsset,
+        // Let server handle template generation
+        templateSvg: newAsset.templateSvg || `<svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">
+  <rect width="100%" height="100%" fill="#f0f0f0"/>
+  <text x="50%" y="50%" text-anchor="middle" font-family="Arial" font-size="16">Generating template...</text>
+</svg>`,
+        templateFonts: '[]',
+        defaultBindings: '{}',
+        styleHints: '{}'
+      });
+    } else {
+      // Use manual template fields
+      createAssetMutation.mutate(newAsset);
+    }
   };
 
   const handleEditAsset = (e: React.FormEvent) => {
@@ -661,9 +689,23 @@ export default function Assets() {
                     onComplete={(result) => {
                       if (result.successful && result.successful.length > 0) {
                         const uploadedFile = result.successful[0];
-                        const fileUrl = uploadedFile.uploadURL;
-                        const fileName = uploadedFile.name;
+                        // Convert the signed upload URL to our serving URL format
+                        const uploadUrl = uploadedFile.uploadURL;
+                        const fileName = uploadedFile.name || 'uploaded-file';
                         const fileType = fileName.split('.').pop()?.toLowerCase() || 'other';
+                        
+                        // Extract the object path from the upload URL to create serving URL
+                        let fileUrl = uploadUrl;
+                        try {
+                          const url = new URL(uploadUrl);
+                          const pathParts = url.pathname.split('/');
+                          if (pathParts.length >= 3) {
+                            const objectId = pathParts[pathParts.length - 1];
+                            fileUrl = `/api/objects/uploads/${objectId}`;
+                          }
+                        } catch (e) {
+                          console.warn('Could not parse upload URL, using as-is:', e);
+                        }
                         
                         // Determine asset type based on file extension
                         let assetType = 'other';
@@ -867,9 +909,23 @@ export default function Assets() {
                     onComplete={(result) => {
                       if (result.successful && result.successful.length > 0) {
                         const uploadedFile = result.successful[0];
-                        const fileUrl = uploadedFile.uploadURL;
-                        const fileName = uploadedFile.name;
+                        // Convert the signed upload URL to our serving URL format
+                        const uploadUrl = uploadedFile.uploadURL;
+                        const fileName = uploadedFile.name || 'uploaded-file';
                         const fileType = fileName.split('.').pop()?.toLowerCase() || 'other';
+                        
+                        // Extract the object path from the upload URL to create serving URL
+                        let fileUrl = uploadUrl;
+                        try {
+                          const url = new URL(uploadUrl);
+                          const pathParts = url.pathname.split('/');
+                          if (pathParts.length >= 3) {
+                            const objectId = pathParts[pathParts.length - 1];
+                            fileUrl = `/api/objects/uploads/${objectId}`;
+                          }
+                        } catch (e) {
+                          console.warn('Could not parse upload URL, using as-is:', e);
+                        }
                         
                         // Determine asset type based on file extension
                         let assetType = 'other';

@@ -341,7 +341,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/assets/:id", requireAuth, async (req, res) => {
     try {
       const user = (req as AuthenticatedRequest).user;
-      const updateData = insertAssetSchema.partial().parse(req.body);
+      let updateData = insertAssetSchema.partial().parse(req.body);
+
+      // If master asset URL was updated, regenerate template
+      if (updateData.masterAssetUrl) {
+        try {
+          // Get the existing asset to access project context
+          const existingAsset = await storage.getAsset(req.params.id, user.id, user.role === "ADMIN");
+          if (existingAsset && existingAsset.masterAssetUrl !== updateData.masterAssetUrl) {
+            console.log(`Regenerating template for updated master asset: ${updateData.masterAssetUrl}`);
+            
+            // Generate template from master asset
+            const templateData = await generateTemplateFromMasterAsset(
+              updateData.masterAssetUrl,
+              updateData.name || existingAsset.name,
+              {
+                name: existingAsset.project.name,
+                brief: existingAsset.project.brief || undefined,
+                clientName: existingAsset.project.client.name
+              }
+            );
+
+            // Include generated template in update data
+            updateData = {
+              ...updateData,
+              templateSvg: templateData.templateSvg,
+              templateFonts: templateData.templateFonts,
+              defaultBindings: templateData.defaultBindings,
+              styleHints: templateData.styleHints,
+            };
+
+            console.log(`Template regenerated successfully for asset update`);
+          }
+        } catch (templateError) {
+          console.error("Template generation failed during update:", templateError);
+          // Continue with update without template regeneration
+        }
+      }
+
       const asset = await storage.updateAsset(req.params.id, updateData, user.id, user.role === "ADMIN");
       if (!asset) {
         return res.status(404).json({
