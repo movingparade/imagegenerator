@@ -322,29 +322,67 @@ export default function Assets() {
       return;
     }
 
-    // If master asset is provided, let server generate template; otherwise use manual template
-    if (newAsset.masterAssetUrl) {
-      // Server will generate template from master asset, so we submit minimal data
-      createAssetMutation.mutate({
-        ...newAsset,
-        // Let server handle template generation
-        templateSvg: newAsset.templateSvg || `<svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">
-  <rect width="100%" height="100%" fill="#f0f0f0"/>
-  <text x="50%" y="50%" text-anchor="middle" font-family="Arial" font-size="16">Generating template...</text>
+    // Ensure all required fields have fallback values
+    const assetData = {
+      ...newAsset,
+      templateSvg: newAsset.templateSvg || `<svg width="400" height="300" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300">
+  <rect width="100%" height="100%" fill="#f8f9fa" stroke="#e9ecef" stroke-width="2"/>
+  <text x="200" y="120" text-anchor="middle" font-family="Arial, sans-serif" font-size="20" fill="#495057">{{headline}}</text>
+  <text x="200" y="150" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" fill="#6c757d">{{subheadline}}</text>
+  <rect x="150" y="180" width="100" height="30" fill="#007bff" rx="4"/>
+  <text x="200" y="200" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="white">{{cta}}</text>
 </svg>`,
-        templateFonts: '[]',
-        defaultBindings: '{}',
-        styleHints: '{}'
-      });
-    } else {
-      // Use manual template fields
-      createAssetMutation.mutate(newAsset);
-    }
+      templateFonts: newAsset.templateFonts || JSON.stringify([
+        { name: "Arial", fallback: "Arial, sans-serif" }
+      ]),
+      defaultBindings: newAsset.defaultBindings || JSON.stringify({
+        headline: "Your Headline Here",
+        subheadline: "Your subheadline text goes here",
+        cta: "Click Here"
+      }),
+      styleHints: newAsset.styleHints || JSON.stringify({
+        primaryColor: "#007bff",
+        secondaryColor: "#6c757d",
+        backgroundColor: "#f8f9fa",
+        fontStyle: "clean and professional",
+        brandNotes: "Default template with professional styling"
+      })
+    };
+
+    createAssetMutation.mutate(assetData);
   };
 
   const handleEditAsset = (e: React.FormEvent) => {
     e.preventDefault();
-    editAssetMutation.mutate(editingAsset);
+    
+    // Ensure all required fields have fallback values
+    const assetData = {
+      ...editingAsset,
+      templateSvg: editingAsset.templateSvg || `<svg width="400" height="300" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300">
+  <rect width="100%" height="100%" fill="#f8f9fa" stroke="#e9ecef" stroke-width="2"/>
+  <text x="200" y="120" text-anchor="middle" font-family="Arial, sans-serif" font-size="20" fill="#495057">{{headline}}</text>
+  <text x="200" y="150" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" fill="#6c757d">{{subheadline}}</text>
+  <rect x="150" y="180" width="100" height="30" fill="#007bff" rx="4"/>
+  <text x="200" y="200" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="white">{{cta}}</text>
+</svg>`,
+      templateFonts: editingAsset.templateFonts || JSON.stringify([
+        { name: "Arial", fallback: "Arial, sans-serif" }
+      ]),
+      defaultBindings: editingAsset.defaultBindings || JSON.stringify({
+        headline: "Your Headline Here",
+        subheadline: "Your subheadline text goes here",
+        cta: "Click Here"
+      }),
+      styleHints: editingAsset.styleHints || JSON.stringify({
+        primaryColor: "#007bff",
+        secondaryColor: "#6c757d",
+        backgroundColor: "#f8f9fa",
+        fontStyle: "clean and professional",
+        brandNotes: "Default template with professional styling"
+      })
+    };
+    
+    editAssetMutation.mutate(assetData);
   };
 
   const handleCreateVariant = (e: React.FormEvent) => {
@@ -689,19 +727,31 @@ export default function Assets() {
                     onComplete={(result) => {
                       if (result.successful && result.successful.length > 0) {
                         const uploadedFile = result.successful[0];
-                        // Convert the signed upload URL to our serving URL format
-                        const uploadUrl = uploadedFile.uploadURL;
-                        const fileName = uploadedFile.name || 'uploaded-file';
-                        const fileType = fileName.split('.').pop()?.toLowerCase() || 'other';
+                        
+                        // Get upload URL and file info with proper null checks
+                        const uploadUrl = uploadedFile.uploadURL || uploadedFile.url;
+                        const fileName = uploadedFile.name || uploadedFile.meta?.name || 'uploaded-file';
+                        
+                        if (!uploadUrl) {
+                          toast({
+                            title: "Error",
+                            description: "Upload completed but no URL received"
+                          });
+                          return;
+                        }
+                        
+                        const fileType = fileName.toString().split('.').pop()?.toLowerCase() || 'other';
                         
                         // Extract the object path from the upload URL to create serving URL
                         let fileUrl = uploadUrl;
                         try {
-                          const url = new URL(uploadUrl);
-                          const pathParts = url.pathname.split('/');
-                          if (pathParts.length >= 3) {
-                            const objectId = pathParts[pathParts.length - 1];
-                            fileUrl = `/api/objects/uploads/${objectId}`;
+                          if (typeof uploadUrl === 'string') {
+                            const url = new URL(uploadUrl);
+                            const pathParts = url.pathname.split('/');
+                            if (pathParts.length >= 3) {
+                              const objectId = pathParts[pathParts.length - 1];
+                              fileUrl = `/api/objects/uploads/${objectId}`;
+                            }
                           }
                         } catch (e) {
                           console.warn('Could not parse upload URL, using as-is:', e);
@@ -721,13 +771,18 @@ export default function Assets() {
                         
                         setNewAsset({
                           ...newAsset,
-                          masterAssetUrl: fileUrl,
+                          masterAssetUrl: typeof fileUrl === 'string' ? fileUrl : uploadUrl,
                           masterAssetType: assetType
                         });
                         
                         toast({
                           title: "Success",
                           description: `File "${fileName}" uploaded successfully`
+                        });
+                      } else {
+                        toast({
+                          title: "Upload Error",
+                          description: "File upload failed. Please try again."
                         });
                       }
                     }}
@@ -909,19 +964,31 @@ export default function Assets() {
                     onComplete={(result) => {
                       if (result.successful && result.successful.length > 0) {
                         const uploadedFile = result.successful[0];
-                        // Convert the signed upload URL to our serving URL format
-                        const uploadUrl = uploadedFile.uploadURL;
-                        const fileName = uploadedFile.name || 'uploaded-file';
-                        const fileType = fileName.split('.').pop()?.toLowerCase() || 'other';
+                        
+                        // Get upload URL and file info with proper null checks
+                        const uploadUrl = uploadedFile.uploadURL || uploadedFile.url;
+                        const fileName = uploadedFile.name || uploadedFile.meta?.name || 'uploaded-file';
+                        
+                        if (!uploadUrl) {
+                          toast({
+                            title: "Error",
+                            description: "Upload completed but no URL received"
+                          });
+                          return;
+                        }
+                        
+                        const fileType = fileName.toString().split('.').pop()?.toLowerCase() || 'other';
                         
                         // Extract the object path from the upload URL to create serving URL
                         let fileUrl = uploadUrl;
                         try {
-                          const url = new URL(uploadUrl);
-                          const pathParts = url.pathname.split('/');
-                          if (pathParts.length >= 3) {
-                            const objectId = pathParts[pathParts.length - 1];
-                            fileUrl = `/api/objects/uploads/${objectId}`;
+                          if (typeof uploadUrl === 'string') {
+                            const url = new URL(uploadUrl);
+                            const pathParts = url.pathname.split('/');
+                            if (pathParts.length >= 3) {
+                              const objectId = pathParts[pathParts.length - 1];
+                              fileUrl = `/api/objects/uploads/${objectId}`;
+                            }
                           }
                         } catch (e) {
                           console.warn('Could not parse upload URL, using as-is:', e);
@@ -941,13 +1008,18 @@ export default function Assets() {
                         
                         setEditingAsset({
                           ...editingAsset,
-                          masterAssetUrl: fileUrl,
+                          masterAssetUrl: typeof fileUrl === 'string' ? fileUrl : uploadUrl,
                           masterAssetType: assetType
                         });
                         
                         toast({
                           title: "Success",
                           description: `File "${fileName}" uploaded successfully`
+                        });
+                      } else {
+                        toast({
+                          title: "Upload Error", 
+                          description: "File upload failed. Please try again."
                         });
                       }
                     }}

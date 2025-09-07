@@ -221,24 +221,64 @@ const templateGenerationResponseSchema = z.object({
 
 export type TemplateGenerationResponse = z.infer<typeof templateGenerationResponseSchema>;
 
+// Helper function to convert Google Drive URLs to direct download links
+function convertGoogleDriveUrl(url: string): string {
+  // Convert Google Drive sharing URLs to direct download URLs
+  const driveRegex = /https:\/\/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/;
+  const match = url.match(driveRegex);
+  if (match && match[1]) {
+    return `https://drive.google.com/uc?export=download&id=${match[1]}`;
+  }
+  return url;
+}
+
 // Helper function to download and convert image to base64
 async function downloadImageAsBase64(imageUrl: string): Promise<{ data: string; mimeType: string }> {
+  // Convert Google Drive URLs to direct download links
+  const processedUrl = convertGoogleDriveUrl(imageUrl);
+  
   return new Promise((resolve, reject) => {
-    https.get(imageUrl, (response) => {
-      if (response.statusCode !== 200) {
-        reject(new Error(`Failed to download image: ${response.statusCode}`));
-        return;
+    https.get(processedUrl, (response) => {
+      // Follow redirects
+      if (response.statusCode === 302 || response.statusCode === 301) {
+        const redirectUrl = response.headers.location;
+        if (redirectUrl) {
+          https.get(redirectUrl, (redirectResponse) => {
+            handleResponse(redirectResponse, resolve, reject);
+          }).on('error', reject);
+          return;
+        }
       }
-
-      const chunks: Buffer[] = [];
-      response.on('data', (chunk) => chunks.push(chunk));
-      response.on('end', () => {
-        const buffer = Buffer.concat(chunks);
-        const base64Data = buffer.toString('base64');
-        const contentType = response.headers['content-type'] || 'image/jpeg';
-        resolve({ data: base64Data, mimeType: contentType });
-      });
+      
+      handleResponse(response, resolve, reject);
     }).on('error', reject);
+  });
+}
+
+function handleResponse(
+  response: any,
+  resolve: (value: { data: string; mimeType: string }) => void,
+  reject: (reason: any) => void
+) {
+  if (response.statusCode !== 200) {
+    reject(new Error(`Failed to download image: ${response.statusCode}`));
+    return;
+  }
+
+  const contentType = response.headers['content-type'] || 'image/jpeg';
+  
+  // Check if response is actually an image
+  if (!contentType.startsWith('image/')) {
+    reject(new Error(`URL does not point to an image. Got content-type: ${contentType}`));
+    return;
+  }
+
+  const chunks: Buffer[] = [];
+  response.on('data', (chunk: Buffer) => chunks.push(chunk));
+  response.on('end', () => {
+    const buffer = Buffer.concat(chunks);
+    const base64Data = buffer.toString('base64');
+    resolve({ data: base64Data, mimeType: contentType });
   });
 }
 
