@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
+import { downloadJson } from "@/lib/utils";
 import { Trash2, Edit, Lightbulb, Zap, User, Download } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
@@ -186,9 +187,17 @@ export default function Variants() {
   };
 
   const handleExport = () => {
+    if (variants.length === 0) {
+      toast({
+        title: "Export",
+        description: "No variants to export",
+      });
+      return;
+    }
+    downloadJson(variants, "variants.json");
     toast({
       title: "Export",
-      description: "Export functionality not yet implemented",
+      description: "Variants exported successfully",
     });
   };
 

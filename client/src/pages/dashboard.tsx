@@ -5,6 +5,7 @@ import StatsCards from "@/components/dashboard/stats-cards";
 import RecentProjects from "@/components/dashboard/recent-projects";
 import QuickActions from "@/components/dashboard/quick-actions";
 import RecentVariants from "@/components/dashboard/recent-variants";
+import { downloadJson } from "@/lib/utils";
 
 export default function Dashboard() {
   const { data: stats, isLoading } = useQuery<DashboardStats>({
@@ -12,8 +13,9 @@ export default function Dashboard() {
   });
 
   const handleExport = () => {
-    // TODO: Implement export functionality
-    console.log("Export functionality not yet implemented");
+    if (stats) {
+      downloadJson(stats, "dashboard-stats.json");
+    }
   };
 
   return (
