@@ -729,7 +729,7 @@ export default function Assets() {
                         const uploadedFile = result.successful[0];
                         
                         // Get upload URL and file info with proper null checks
-                        const uploadUrl = uploadedFile.uploadURL || uploadedFile.url;
+                        const uploadUrl = uploadedFile.uploadURL;
                         const fileName = uploadedFile.name || uploadedFile.meta?.name || 'uploaded-file';
                         
                         if (!uploadUrl) {
@@ -966,7 +966,7 @@ export default function Assets() {
                         const uploadedFile = result.successful[0];
                         
                         // Get upload URL and file info with proper null checks
-                        const uploadUrl = uploadedFile.uploadURL || uploadedFile.url;
+                        const uploadUrl = uploadedFile.uploadURL;
                         const fileName = uploadedFile.name || uploadedFile.meta?.name || 'uploaded-file';
                         
                         if (!uploadUrl) {
